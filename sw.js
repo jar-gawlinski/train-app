@@ -1,63 +1,65 @@
-const CACHE = 'train-v1';
+const CACHE = 'train-v2';
 
-const PRECACHE = [
-  '/index.html',
-  '/manifest.json',
-  '/icon.svg',
-  'https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap',
+const PRECACHE_LOCAL = [
+  './index.html',
+  './manifest.json',
+  './icon.svg',
 ];
 
-// Install: cache everything upfront
+const FONTS_URL = 'https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap';
+
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(async cache => {
-      // Cache local files
-      await cache.addAll(['/index.html', '/manifest.json', '/icon.svg']);
-      // Cache Google Fonts CSS (fetch with CORS)
-      try {
-        const fontCss = await fetch('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap');
-        await cache.put('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap', fontCss);
-        // Parse CSS to find font file URLs and cache those too
-        const css = await (await caches.match('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600&display=swap')).text();
-        const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com[^)]+)\)/g)].map(m => m[1]);
-        await Promise.all(urls.map(async url => {
-          try {
-            const r = await fetch(url);
-            await cache.put(url, r);
-          } catch(e) {}
-        }));
-      } catch(e) {}
-    }).then(() => self.skipWaiting())
-  );
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+
+    // Cache local files
+    await cache.addAll(PRECACHE_LOCAL);
+
+    // Cache Google Fonts CSS + actual font files
+    try {
+      const fontResp = await fetch(FONTS_URL);
+      const fontRespClone = fontResp.clone();
+      await cache.put(FONTS_URL, fontResp);
+
+      const css = await fontRespClone.text();
+      const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com[^)]+)\)/g)].map(m => m[1]);
+      await Promise.all(urls.map(async url => {
+        try {
+          const r = await fetch(url);
+          await cache.put(url, r);
+        } catch(err) { /* ignore individual font failures */ }
+      }));
+    } catch(err) { /* offline during install — fonts will load when online */ }
+
+    await self.skipWaiting();
+  })());
 });
 
-// Activate: clean old caches
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-// Fetch: cache-first for everything
 self.addEventListener('fetch', e => {
-  // Only handle GET
   if (e.request.method !== 'GET') return;
 
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      // Not in cache — try network, then cache the result
-      return fetch(e.request).then(response => {
-        if (!response || response.status !== 200) return response;
-        const clone = response.clone();
-        caches.open(CACHE).then(cache => cache.put(e.request, clone));
-        return response;
-      }).catch(() => {
-        // Offline and not cached — return index.html as fallback
-        return caches.match('/index.html');
-      });
-    })
-  );
+  e.respondWith((async () => {
+    const cached = await caches.match(e.request);
+    if (cached) return cached;
+
+    try {
+      const response = await fetch(e.request);
+      if (response && response.status === 200) {
+        const cache = await caches.open(CACHE);
+        cache.put(e.request, response.clone());
+      }
+      return response;
+    } catch(err) {
+      // Offline fallback — return the app shell
+      return caches.match('./index.html');
+    }
+  })());
 });
