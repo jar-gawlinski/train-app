@@ -1,0 +1,18 @@
+{
+  "name": "Train — Daily Session Log",
+  "short_name": "Train",
+  "description": "Calisthenics training log with daily sessions, dropdowns, and history",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#2C2E1E",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
